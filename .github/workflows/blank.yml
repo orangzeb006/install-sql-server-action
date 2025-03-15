@@ -1,0 +1,61 @@
+name: "Test Logistic Systems On Windows"
+
+on:
+    push:
+        branches: ["agent-testing"]
+
+permissions:
+    id-token: write
+    contents: read
+    checks: write
+
+jobs:
+    Build:
+        name: Logistic Systems
+        runs-on: windows-latest
+        environment:
+            name: Development
+
+        steps:
+            - name: Install SQL Server 2022 Express
+              shell: pwsh
+              run: |
+                  # Windows SQL install via Chocolatey
+                  $template = @'
+                  {[string]Package*:sql-server-express}|{[int]Major:2022}.{[int]Minor:16}.{[int]Patch:0}.{[int]Build:1000}
+                  {[string]Package*:sql-server-express}|{[int]Major:2022}.{[int]Minor:16}.{[int]Patch:0}.{[int]Build:0}
+                  {[string]Package*:sql-server-express}|{[int]Major:14}.{[int]Minor:1801}.{[int]Patch:3958}.{[int]Build:1}
+                  '@
+
+                  # Limited output should be sql-server-express|versionstring
+                  $availableVersions = choco search sql-server-express --exact --all-versions --limit-output | Where-Object { $_ -like "*2022**" }
+                  # IncludeExtent will feed the input into an ExtendText property. Using the template examples helps to order by Major which is all we are interested in
+                  $sortedVersions = $availableVersions | ConvertFrom-String -TemplateContent $template -IncludeExtent | Sort-Object -Property Major -Descending
+                  $newestVersion = $sortedVersions[0].ExtentText.Split("|")[1]
+
+                  if ($newestVersion) {
+                      Write-Output "Installing SQL Server Express version $newestVersion with Chocolatey..."
+                      choco install sql-server-express --version $newestVersion -y --no-progress
+                  } else {
+                      Write-Output "No versions found matching the prefix '2022'. Installing latest with Chocolatey..."
+                      choco install sql-server-express --no-progress
+                  }
+
+                  # Wait for availability then create initial catalog
+                  for ($i = 1; $i -le 30; $i++) {
+                    Write-Output "Attempt $i/30 to connect to SQL Server..."
+                    sqlcmd -b -Q "SELECT @@SERVERNAME as ServerName" 2>&1>$null
+                    if ($?) {
+                      Write-Output "  - SQL Server is now ready"
+                      break
+                    } else {
+                      Write-Output "  - Not ready, sleeping for 5s"
+                      Start-Sleep -seconds 5
+                    }
+                  }
+
+            # - name: Prepare Databases
+            #   shell: pwsh
+            #   run: |
+            #   cd .\_Utils\Tools\
+            #   .\RebuildAllDatabases.cmd
