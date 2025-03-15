@@ -2,7 +2,7 @@ name: "Test Logistic Systems On Windows"
 
 on:
     push:
-        branches: ["agent-testing"]
+        branches: ["main", "master"]
 
 permissions:
     id-token: write
